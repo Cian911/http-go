@@ -35,11 +35,17 @@ func main() {
 
 func handleConnection(conn net.Conn) {
 	defer conn.Close()
+	buf := make([]byte, 512)
 
-	h := New()
+	_, err := conn.Read(buf)
+	if err != nil {
+		log.Fatalf("Could not read from connection: %v", err)
+	}
+
+	h := ParseHttpRequest(buf)
 	resBytes := h.Response()
 
-	_, err := conn.Write(resBytes)
+	_, err = conn.Write(resBytes)
 	if err != nil {
 		log.Fatal(err)
 	}
