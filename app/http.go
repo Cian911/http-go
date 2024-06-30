@@ -1,78 +1,183 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
+	"log"
+	"strconv"
 	"strings"
 )
 
+const (
+	OK          = 200
+	NOT_FOUND   = 404
+	BAD_REQUEST = 400
+)
+
 type Http struct {
+	RequestLine  HttpRequestLine
+	Headers      HttpHeaders
+	ResponseBody HttpResponse
+}
+
+type HttpRequestLine struct {
 	Method     string
 	Path       string
 	Version    string
-	StatusCode int
 	Reason     string
-
-	Header Headers
-
-	ResponseBody string
+	StatusCode int
 }
 
-type Headers struct {
+type HttpHeaders struct {
 	Host          string
 	UserAgent     string
+	Accept        string
 	ContentType   string
 	ContentLength int
 }
 
-func New() *Http {
-	return &Http{
+type HttpResponse struct {
+	Body string
+}
+
+// https://datatracker.ietf.org/doc/html/rfc9112#name-message-parsing
+func NewParseHttpRequest(request []byte) *Http {
+	// Http request is broke down as follows
+	/*
+					   Request Line: Seperated by spaces, and ends with a control character
+					     - Method
+					     - Path
+					     - Version
+
+				    Headers: Each header is seperated with a control character.
+				      - Host
+				      - User-Agent
+				      - Content-Type
+				      - Etc...
+
+		        ResponseBody: Optional response body
+		          - ...
+
+		        Each request should end with a double control character /r/n/r/n
+	*/
+	var blocks [][]byte
+	crlf := []byte{13, 10}
+
+	for len(request) > 0 {
+		// Grab the index of a CRLF block
+		index := bytes.Index(request, crlf)
+
+		// No more CRLF blocks found
+		if index == -1 {
+			blocks = append(blocks, request)
+			break
+		}
+
+		// Add block up to and including the CRLF
+		block := request[:index+len(crlf)]
+		blocks = append(blocks, block)
+
+		// Move past CRLF
+		request = request[index+len(crlf):]
+	}
+
+	requestLine := parseLineRequest(blocks[0])
+	headers, _ := parseHeaderRequest(blocks[1:])
+
+	http := &Http{
+		RequestLine: *requestLine,
+		Headers:     *headers,
+	}
+	http.parsePathResponse(requestLine.Path)
+
+	fmt.Printf("FINAL: %v", http)
+
+	return http
+}
+
+func parseLineRequest(block []byte) *HttpRequestLine {
+	data := strings.Split(string(block), " ")
+	fmt.Println(data)
+	if len(data) <= 1 {
+		log.Fatal("Could not parse line request block.")
+	}
+
+	return &HttpRequestLine{
+		Method:     data[0],
+		Path:       data[1],
 		Version:    "HTTP/1.1",
-		StatusCode: 200,
+		StatusCode: OK,
 		Reason:     "OK",
 	}
 }
 
-func ParseHttpRequest(data []byte) *Http {
-	requestLine := []string{}
-	headers := []string{}
-	// Search for spaces in first block
-	index := 0
-	for i := 0; i < len(data); i++ {
-		if i == 20 { // Check for spaces
-			requestLine = append(requestLine, string(data[index:i]))
-			index = i
+func (h *Http) parsePathResponse(path string) {
+	switch path {
+	case "/":
+		h.RequestLine.Reason = "OK"
+		h.RequestLine.StatusCode = OK
+	default:
+		if strings.Contains(path, "/echo") {
+			str := strings.Split(path, "/")
+			h.Headers.ContentType = "text/plain"
+			h.Headers.ContentLength = len(str[1])
+			h.RequestLine.StatusCode = OK
+			h.ResponseBody.Body = str[1]
+		} else if strings.Contains(path, "/user-agent") {
+			h.ResponseBody.Body = h.Headers.UserAgent
+			h.Headers.ContentType = "text/plain"
+			h.Headers.ContentLength = len(h.ResponseBody.Body)
+			h.RequestLine.StatusCode = OK
+		} else {
+			h.RequestLine.Reason = "Not Found"
+			h.RequestLine.StatusCode = NOT_FOUND
+		}
+	}
+}
+
+func parseHeaderRequest(headerBlocks [][]byte) (*HttpHeaders, int) {
+	headers := map[string]string{}
+	crlf := []byte{13, 10}
+	index := 1
+
+	for _, v := range headerBlocks {
+		if string(v) == string(crlf) {
+			break
 		}
 
-		if i == 10 {
-			headers = append(headers, string(data[i:]))
+		h := strings.Split(string(v), ":")
+		headers[h[0]] = h[1]
+		index++
+	}
+
+	h := &HttpHeaders{}
+
+	for key, val := range headers {
+		switch key {
+		case "Host":
+			h.Host = val
+		case "User-Agent":
+			h.UserAgent = val
+		case "Accept":
+			h.Accept = val
+		case "Content-Type":
+			h.ContentType = val
+		case "Content-Length":
+			l, _ := strconv.Atoi(val)
+			h.ContentLength = l
 		}
 	}
 
-	requestLine = strings.Split(requestLine[0], " ")
-	statusCode := 200
-	reason := "OK"
-	h := &Headers{}
-	resBody := ""
-
-	if strings.Contains(requestLine[1], "/echo") {
-		str := strings.Split(requestLine[1], "/")
-		resBody = str[2]
-		h.ContentType = "text/plain"
-		h.ContentLength = len(str[2])
-	} else if requestLine[1] != "/" {
-		statusCode = 404
-		reason = "Not Found"
+	if len(headerBlocks) < index {
+		index = 0
 	}
 
-	return &Http{
-		Method:       requestLine[0],
-		Path:         requestLine[1],
-		Version:      "HTTP/1.1",
-		StatusCode:   statusCode,
-		Reason:       reason,
-		Header:       *h,
-		ResponseBody: resBody,
-	}
+	// Return the current headers, as well as the index to the response block, or 0 if it doesnt exist
+	return h, index
+}
+
+func (h *Http) parseBodyResponse(block [][]byte) {
+	// TODO: Remember to deal with POST requests here when we come to it
 }
 
 func (h *Http) Response() []byte {
@@ -80,6 +185,17 @@ func (h *Http) Response() []byte {
 	// Also known as 'control characters'
 	// CR - Moves the cursor to the beginning of the line without advancing to the next
 	// LF - Moves the cursor down to the next line without returning to the beginning of the line.
-	str := fmt.Sprintf("%s %d %s\r\nContent-Type: %s\r\nContent-Length: %d\r\n\r\n%s\r\n\r\n", h.Version, h.StatusCode, h.Reason, h.Header.ContentType, h.Header.ContentLength, h.ResponseBody)
+	// str := fmt.Sprintf("%s %d %s\r\nContent-Type: %s\r\nContent-Length: %d\r\n\r\n%s\r\n\r\n", h.RequestLine.Method, h.RequestLine.StatusCode, h.RequestLine.Path, h.Headers.ContentType, h.Headers.ContentLength, h.ResponseBody.Body)
+	str := fmt.Sprintf(
+		"%s %d %s\r\nUser-Agent: %s\r\nContent-Type: %s\r\nContent-Length: %d\r\n\r\n%s\r\n\r\n",
+		h.RequestLine.Version,
+		h.RequestLine.StatusCode,
+		h.RequestLine.Reason,
+		h.Headers.UserAgent,
+		h.Headers.ContentType,
+		h.Headers.ContentLength,
+		h.ResponseBody.Body,
+	)
+
 	return []byte(str)
 }
