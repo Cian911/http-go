@@ -90,8 +90,6 @@ func NewParseHttpRequest(request []byte) *Http {
 	}
 	http.parsePathResponse(requestLine.Path)
 
-	fmt.Printf("FINAL: %v", http)
-
 	return http
 }
 
@@ -104,7 +102,7 @@ func parseLineRequest(block []byte) *HttpRequestLine {
 
 	return &HttpRequestLine{
 		Method:     data[0],
-		Path:       data[1],
+		Path:       strings.TrimSpace(data[1]),
 		Version:    "HTTP/1.1",
 		StatusCode: OK,
 		Reason:     "OK",
@@ -120,14 +118,16 @@ func (h *Http) parsePathResponse(path string) {
 		if strings.Contains(path, "/echo") {
 			str := strings.Split(path, "/")
 			h.Headers.ContentType = "text/plain"
-			h.Headers.ContentLength = len(str[1])
+			h.Headers.ContentLength = len(str[len(str)-1])
 			h.RequestLine.StatusCode = OK
-			h.ResponseBody.Body = str[1]
+			h.ResponseBody.Body = str[len(str)-1]
+			return
 		} else if strings.Contains(path, "/user-agent") {
 			h.ResponseBody.Body = h.Headers.UserAgent
 			h.Headers.ContentType = "text/plain"
-			h.Headers.ContentLength = len(h.ResponseBody.Body)
+			h.Headers.ContentLength = len(h.Headers.UserAgent)
 			h.RequestLine.StatusCode = OK
+			return
 		} else {
 			h.RequestLine.Reason = "Not Found"
 			h.RequestLine.StatusCode = NOT_FOUND
@@ -155,15 +155,15 @@ func parseHeaderRequest(headerBlocks [][]byte) (*HttpHeaders, int) {
 	for key, val := range headers {
 		switch key {
 		case "Host":
-			h.Host = val
+			h.Host = strings.TrimSpace(val)
 		case "User-Agent":
-			h.UserAgent = val
+			h.UserAgent = strings.TrimSpace(val)
 		case "Accept":
-			h.Accept = val
+			h.Accept = strings.TrimSpace(val)
 		case "Content-Type":
-			h.ContentType = val
+			h.ContentType = strings.TrimSpace(val)
 		case "Content-Length":
-			l, _ := strconv.Atoi(val)
+			l, _ := strconv.Atoi(strings.TrimSpace(val))
 			h.ContentLength = l
 		}
 	}
@@ -185,15 +185,14 @@ func (h *Http) Response() []byte {
 	// Also known as 'control characters'
 	// CR - Moves the cursor to the beginning of the line without advancing to the next
 	// LF - Moves the cursor down to the next line without returning to the beginning of the line.
-	// str := fmt.Sprintf("%s %d %s\r\nContent-Type: %s\r\nContent-Length: %d\r\n\r\n%s\r\n\r\n", h.RequestLine.Method, h.RequestLine.StatusCode, h.RequestLine.Path, h.Headers.ContentType, h.Headers.ContentLength, h.ResponseBody.Body)
 	str := fmt.Sprintf(
-		"%s %d %s\r\nUser-Agent: %s\r\nContent-Type: %s\r\nContent-Length: %d\r\n\r\n%s\r\n\r\n",
+		"%s %d %s\r\nContent-Type: %s\r\nContent-Length: %d\r\nUser-Agent: %s\r\n\r\n%s",
 		h.RequestLine.Version,
 		h.RequestLine.StatusCode,
 		h.RequestLine.Reason,
-		h.Headers.UserAgent,
 		h.Headers.ContentType,
 		h.Headers.ContentLength,
+		h.Headers.UserAgent,
 		h.ResponseBody.Body,
 	)
 
