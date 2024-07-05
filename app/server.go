@@ -8,11 +8,21 @@ import (
 	"sync"
 )
 
-var wg sync.WaitGroup
+var (
+	wg       sync.WaitGroup
+	filesDir string
+)
 
 func main() {
 	// You can use print statements as follows for debugging, they'll be visible when running tests.
 	fmt.Println("Logs from your program will appear here!")
+
+	// Check for --directory arg
+	if len(os.Args) > 1 && os.Args[1] == "--directory" {
+		filesDir = os.Args[2]
+	} else {
+		filesDir = ""
+	}
 
 	// Uncomment this block to pass the first stage
 	//
@@ -42,7 +52,7 @@ func handleConnection(conn net.Conn) {
 		log.Fatalf("Could not read from connection: %v", err)
 	}
 
-	h := NewParseHttpRequest(buf)
+	h := NewParseHttpRequest(buf, filesDir)
 	resBytes := h.Response()
 
 	_, err = conn.Write(resBytes)

@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"fmt"
 	"log"
+	"os"
 	"strconv"
 	"strings"
 )
+
+var FilesDir string
 
 const (
 	OK          = 200
@@ -41,7 +44,7 @@ type HttpResponse struct {
 }
 
 // https://datatracker.ietf.org/doc/html/rfc9112#name-message-parsing
-func NewParseHttpRequest(request []byte) *Http {
+func NewParseHttpRequest(request []byte, filesDir string) *Http {
 	// Http request is broke down as follows
 	/*
 					   Request Line: Seperated by spaces, and ends with a control character
@@ -60,6 +63,7 @@ func NewParseHttpRequest(request []byte) *Http {
 
 		        Each request should end with a double control character /r/n/r/n
 	*/
+	FilesDir = filesDir
 	var blocks [][]byte
 	crlf := []byte{13, 10}
 
@@ -128,6 +132,20 @@ func (h *Http) parsePathResponse(path string) {
 			h.Headers.ContentLength = len(h.Headers.UserAgent)
 			h.RequestLine.StatusCode = OK
 			return
+		} else if strings.Contains(path, "/files") {
+			// Handle files endpoint
+			str := strings.Split(path, "/")
+			file, err := readFile(str[len(str)-1])
+			if err != nil {
+				fmt.Println(err)
+				h.RequestLine.StatusCode = NOT_FOUND
+				h.RequestLine.Reason = "Not Found"
+				return
+			}
+			h.Headers.ContentType = "application/octet-stream"
+			h.RequestLine.StatusCode = OK
+			h.Headers.ContentLength = len(file)
+			h.ResponseBody.Body = string(file)
 		} else {
 			h.RequestLine.Reason = "Not Found"
 			h.RequestLine.StatusCode = NOT_FOUND
@@ -197,4 +215,11 @@ func (h *Http) Response() []byte {
 	)
 
 	return []byte(str)
+}
+
+func readFile(filename string) ([]byte, error) {
+	fmt.Println(filename)
+	fullPath := fmt.Sprintf("%s%s", FilesDir, filename)
+	f, e := os.ReadFile(fullPath)
+	return f, e
 }
