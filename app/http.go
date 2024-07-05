@@ -13,6 +13,7 @@ var FilesDir string
 
 const (
 	OK          = 200
+	OK_CREATED  = 201
 	NOT_FOUND   = 404
 	BAD_REQUEST = 400
 )
@@ -79,6 +80,7 @@ func NewParseHttpRequest(request []byte, filesDir string) *Http {
 
 		// Add block up to and including the CRLF
 		block := request[:index+len(crlf)]
+		fmt.Println(string(block))
 		blocks = append(blocks, block)
 
 		// Move past CRLF
@@ -92,6 +94,7 @@ func NewParseHttpRequest(request []byte, filesDir string) *Http {
 		RequestLine: *requestLine,
 		Headers:     *headers,
 	}
+	http.parseBodyResponse(blocks[1:])
 	http.parsePathResponse(requestLine.Path)
 
 	return http
@@ -135,17 +138,25 @@ func (h *Http) parsePathResponse(path string) {
 		} else if strings.Contains(path, "/files") {
 			// Handle files endpoint
 			str := strings.Split(path, "/")
-			file, err := readFile(str[len(str)-1])
-			if err != nil {
-				fmt.Println(err)
-				h.RequestLine.StatusCode = NOT_FOUND
-				h.RequestLine.Reason = "Not Found"
+			if h.RequestLine.Method == "POST" {
+				_ = createFile(str[len(str)-1], []byte(h.ResponseBody.Body[0:h.Headers.ContentLength]))
+				h.RequestLine.Reason = "Created"
+				h.RequestLine.StatusCode = OK_CREATED
 				return
+			} else {
+				file, err := readFile(str[len(str)-1])
+				if err != nil {
+					fmt.Println(err)
+					h.RequestLine.StatusCode = NOT_FOUND
+					h.RequestLine.Reason = "Not Found"
+					return
+				}
+				h.Headers.ContentType = "application/octet-stream"
+				h.RequestLine.StatusCode = OK
+				h.Headers.ContentLength = len(file)
+				h.ResponseBody.Body = string(file)
 			}
-			h.Headers.ContentType = "application/octet-stream"
-			h.RequestLine.StatusCode = OK
-			h.Headers.ContentLength = len(file)
-			h.ResponseBody.Body = string(file)
+
 		} else {
 			h.RequestLine.Reason = "Not Found"
 			h.RequestLine.StatusCode = NOT_FOUND
@@ -195,7 +206,7 @@ func parseHeaderRequest(headerBlocks [][]byte) (*HttpHeaders, int) {
 }
 
 func (h *Http) parseBodyResponse(block [][]byte) {
-	// TODO: Remember to deal with POST requests here when we come to it
+	h.ResponseBody.Body = string(block[len(block)-1])
 }
 
 func (h *Http) Response() []byte {
@@ -222,4 +233,22 @@ func readFile(filename string) ([]byte, error) {
 	fullPath := fmt.Sprintf("%s%s", FilesDir, filename)
 	f, e := os.ReadFile(fullPath)
 	return f, e
+}
+
+func createFile(filename string, fileContents []byte) (fileLen int) {
+	fullPath := fmt.Sprintf("%s%s", FilesDir, filename)
+	// First create the file
+	f, err := os.Create(fullPath)
+	if err != nil {
+		log.Fatal(err)
+	}
+	// Don't close the file until we've written to it
+	defer f.Close()
+	// Then write content to it
+	l, err := f.Write(fileContents)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	return l
 }
