@@ -9,7 +9,10 @@ import (
 	"strings"
 )
 
-var FilesDir string
+var (
+	FilesDir          string
+	AcceptedEncodings = "gzip"
+)
 
 const (
 	OK          = 200
@@ -33,11 +36,13 @@ type HttpRequestLine struct {
 }
 
 type HttpHeaders struct {
-	Host          string
-	UserAgent     string
-	Accept        string
-	ContentType   string
-	ContentLength int
+	Host            string
+	UserAgent       string
+	Accept          string
+	ContentType     string
+	ContentEncoding string
+	ContentLength   int
+	AcceptEncoding  string
 }
 
 type HttpResponse struct {
@@ -194,6 +199,12 @@ func parseHeaderRequest(headerBlocks [][]byte) (*HttpHeaders, int) {
 		case "Content-Length":
 			l, _ := strconv.Atoi(strings.TrimSpace(val))
 			h.ContentLength = l
+		case "Accept-Encoding":
+			if strings.Contains(AcceptedEncodings, strings.TrimSpace(val)) {
+				h.ContentEncoding = strings.TrimSpace(val)
+			} else {
+				h.ContentEncoding = ""
+			}
 		}
 	}
 
@@ -215,10 +226,11 @@ func (h *Http) Response() []byte {
 	// CR - Moves the cursor to the beginning of the line without advancing to the next
 	// LF - Moves the cursor down to the next line without returning to the beginning of the line.
 	str := fmt.Sprintf(
-		"%s %d %s\r\nContent-Type: %s\r\nContent-Length: %d\r\nUser-Agent: %s\r\n\r\n%s",
+		"%s %d %s\r\nContent-Encoding: %s\r\nContent-Type: %s\r\nContent-Length: %d\r\nUser-Agent: %s\r\n\r\n%s",
 		h.RequestLine.Version,
 		h.RequestLine.StatusCode,
 		h.RequestLine.Reason,
+		h.Headers.ContentEncoding,
 		h.Headers.ContentType,
 		h.Headers.ContentLength,
 		h.Headers.UserAgent,
