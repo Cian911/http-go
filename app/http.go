@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"compress/gzip"
 	"fmt"
 	"log"
 	"os"
@@ -130,9 +131,16 @@ func (h *Http) parsePathResponse(path string) {
 		if strings.Contains(path, "/echo") {
 			str := strings.Split(path, "/")
 			h.Headers.ContentType = "text/plain"
-			h.Headers.ContentLength = len(str[len(str)-1])
+			if h.Headers.ContentEncoding == "gzip" {
+				compressedContent := compress(str[len(str)-1])
+				h.Headers.ContentLength = len(compressedContent)
+				h.ResponseBody.Body = string(compressedContent)
+			} else {
+				h.Headers.ContentLength = len(str[len(str)-1])
+				h.ResponseBody.Body = str[len(str)-1]
+			}
 			h.RequestLine.StatusCode = OK
-			h.ResponseBody.Body = str[len(str)-1]
+
 			return
 		} else if strings.Contains(path, "/user-agent") {
 			h.ResponseBody.Body = h.Headers.UserAgent
@@ -263,4 +271,19 @@ func createFile(filename string, fileContents []byte) (fileLen int) {
 	}
 
 	return l
+}
+
+func compress(content string) []byte {
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	_, err := gz.Write([]byte(content))
+	if err != nil {
+		log.Fatalf("Could not compressed content: %v", err)
+	}
+
+	if err := gz.Close(); err != nil {
+		log.Fatal(err)
+	}
+
+	return buf.Bytes()
 }
