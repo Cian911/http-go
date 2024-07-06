@@ -200,8 +200,8 @@ func parseHeaderRequest(headerBlocks [][]byte) (*HttpHeaders, int) {
 			l, _ := strconv.Atoi(strings.TrimSpace(val))
 			h.ContentLength = l
 		case "Accept-Encoding":
-			if strings.Contains(AcceptedEncodings, strings.TrimSpace(val)) {
-				h.ContentEncoding = strings.TrimSpace(val)
+			if strings.Contains(strings.TrimSpace(val), AcceptedEncodings) {
+				h.ContentEncoding = AcceptedEncodings
 			} else {
 				h.ContentEncoding = ""
 			}
